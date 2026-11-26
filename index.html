@@ -125,6 +125,11 @@ input[type=color]{width:38px;height:30px;border:1px solid var(--line);border-rad
 .tile .tdel{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--surface);border:1px solid var(--line);color:var(--danger);font:700 15px/20px Tajawal,sans-serif;text-align:center;opacity:.0;transition:opacity .15s;cursor:pointer;z-index:2}
 .tile:hover .tdel,.tile:focus-within .tdel,.tile .tdel:focus-visible{opacity:1}
 @media (hover:none){.tile .tdel{opacity:.85}}
+.tile .tfav{position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;background:var(--surface);border:1px solid var(--line);color:var(--gold);font:700 14px/20px Tajawal,sans-serif;text-align:center;cursor:pointer;z-index:2;opacity:0;transition:opacity .15s}
+.tile:hover .tfav,.tile:focus-within .tfav,.tile .tfav.on,.tile .tfav:focus-visible{opacity:1}
+.tile .tfav.on{background:var(--gold);color:#fff;border-color:var(--gold)}
+@media (hover:none){.tile .tfav{opacity:.85}}
+.favbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:12px;color:var(--muted)}
 .librest{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;font-size:12.5px;color:var(--muted);background:var(--surface2);border-radius:8px;padding:6px 10px}
 @media (max-width: 900px){
   html,body{height:auto}.app{height:auto;display:block}
@@ -1308,9 +1313,22 @@ async function wireTemplates(){
 /* ================= إخفاء التصاميم من المكتبات ================= */
 const LIB_KINDS={frameGal:['frame','إطار'],pnGal:['pnum','رقم صفحة'],hGal:['head','ترويسة'],bGal:['border','إطار صفحة'],shapeGal:['shape','شكل رقم'],cGal:['cover','غلاف']};
 let LIB_HIDDEN=(()=>{try{return JSON.parse(localStorage.getItem('lawh-hidden')||'{}')||{}}catch(e){return {}}})();
+let LIB_FAV=(()=>{try{return JSON.parse(localStorage.getItem('lawh-fav')||'{}')||{}}catch(e){return {}}})();const LIB_ONLY={};
+function favSave(){try{localStorage.setItem('lawh-fav',JSON.stringify(LIB_FAV))}catch(e){}}
 function libSave(){try{localStorage.setItem('lawh-hidden',JSON.stringify(LIB_HIDDEN))}catch(e){}persist()}
 function decorateLib(){
-  Object.entries(LIB_KINDS).forEach(([gid,[kind,label]])=>{const g=document.getElementById(gid);if(!g)return;const hid=LIB_HIDDEN[kind]||[];
+  Object.entries(LIB_KINDS).forEach(([gid,[kind,label]])=>{const g=document.getElementById(gid);if(!g)return;const hid=LIB_HIDDEN[kind]||[];const fav=LIB_FAV[kind]||[];
+    // المفضلة: نجمة على كل تصميم، والمفضل يتقدّم أول القائمة
+    g.querySelectorAll('.tile[data-v]').forEach(t=>{const v=t.dataset.v;if(t.querySelector('.tfav'))return;const on=fav.includes(v);t.classList.toggle('isfav',on);
+      const st=document.createElement('span');st.className='tfav'+(on?' on':'');st.setAttribute('role','button');st.tabIndex=0;st.title=on?'إزالة من المفضلة':'إضافة إلى المفضلة';st.setAttribute('aria-pressed',on);st.textContent=on?'★':'☆';
+      const tg=e=>{e.stopPropagation();e.preventDefault();const L=new Set(LIB_FAV[kind]||[]);L.has(v)?L.delete(v):L.add(v);LIB_FAV[kind]=[...L];favSave();renderPanel()};
+      st.addEventListener('click',tg);st.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' ')tg(e)});t.style.position='relative';t.appendChild(st)});
+    [...g.querySelectorAll('.tile.isfav')].reverse().forEach(t=>t.parentElement.prepend(t));
+    if(!g.previousElementSibling||!g.previousElementSibling.classList.contains('favbar')){const bar=document.createElement('div');bar.className='favbar';g.insertAdjacentElement('beforebegin',bar)}
+    const bar=g.previousElementSibling;const nf=fav.length;
+    bar.innerHTML=`<button type="button" class="btn small${LIB_ONLY[kind]?' primary':''}" ${nf?'':'disabled'}>★ المفضلة فقط${nf?' ('+nf+')':''}</button><span>${nf?'':'اضغط ☆ على أي تصميم لإضافته إلى المفضلة'}</span>`;
+    bar.querySelector('button').onclick=()=>{LIB_ONLY[kind]=!LIB_ONLY[kind];renderPanel()};
+    if(LIB_ONLY[kind]&&nf)g.querySelectorAll('.tile[data-v]').forEach(t=>{if(!fav.includes(t.dataset.v)&&t.getAttribute('aria-pressed')!=='true')t.hidden=true});
     g.querySelectorAll('.tile[data-v]').forEach(t=>{const v=t.dataset.v;
       if(hid.includes(v)&&t.getAttribute('aria-pressed')!=='true'){t.remove();return}
       if(t.querySelector('.tdel'))return;const x=document.createElement('span');x.className='tdel';x.setAttribute('role','button');x.tabIndex=0;x.title='حذف من القائمة';x.setAttribute('aria-label','حذف هذا '+label+' من القائمة');x.textContent='×';
@@ -1387,6 +1405,7 @@ function renderPanel(){
   const p=$('#panel');let h='';
   if(curTab==='images'){
     h+=`<h2>الصور</h2><p class="hint">ارفع عدة صور دفعة واحدة، ثم اسحبها لإعادة ترتيبها. انقر صورة في المعاينة لتحديدها، واسحب داخلها لتحريك موضع القص.</p>
+    <div class="row" style="margin-bottom:10px"><label>ترقيم الصور</label><div class="ctl"><div class="seg" id="qNum" role="group"><button type="button" data-v="1" aria-pressed="${S.num.on}">بأرقام</button><button type="button" data-v="0" aria-pressed="${!S.num.on}">بدون أرقام</button></div></div></div>
     <div class="drop" id="drop" tabindex="0" role="button"><strong>اختر صوراً</strong> أو اسحبها وأفلتها هنا<br><span style="color:var(--muted);font-size:12px">JPG أو PNG أو WEBP، يمكن اختيار عدة ملفات معاً</span></div>`;
     if(IMGS.length){h+=`<div class="sec"><div class="row" style="justify-content:space-between"><h3 style="margin:0">${IMGS.length} صورة بالترتيب</h3><span id="clearWrap"><button class="btn small danger" id="btnClear" type="button">حذف الكل</button></span></div><div class="row" style="gap:6px"><span style="color:var(--muted);font-size:12px">ترتيب:</span><button class="btn small" type="button" data-sort="date">حسب تاريخ التصوير</button><button class="btn small" type="button" data-sort="name">حسب الاسم</button><button class="btn small" type="button" data-sort="reverse">عكس الترتيب</button></div><div class="thumbs" id="thumbs">${IMGS.map((im,i)=>`<div class="thumb" draggable="true" data-i="${i}" aria-selected="${im.id===selId}" tabindex="0" role="button" aria-label="صورة ${i+1}"><img src="${im.src}" alt=""><span class="n">${i+S.num.start}</span></div>`).join('')}</div></div>`}
     const im=IMGS.find(x=>x.id===selId);
@@ -1495,6 +1514,7 @@ function renderPanel(){
 function syncEditor(){const im=IMGS.find(x=>x.id===selId);if(!im)return;[['imZoom','zoom','×'],['imOx','ox',''],['imOy','oy','']].forEach(([id,k,u])=>{const el=document.getElementById(id);if(el){el.value=im[k];document.getElementById(id+'-o').textContent=fmtV(im[k],u)}})}
 function wirePanel(){
   if(curTab==='images'){
+    document.querySelectorAll('#qNum button').forEach(b=>b.onclick=()=>{S.num.on=b.dataset.v==='1';document.querySelectorAll('#qNum button').forEach(x=>x.setAttribute('aria-pressed',x===b));schedule()});
     const drop=$('#drop');drop.onclick=()=>$('#imgFiles').click();drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#imgFiles').click()}};
     ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();drop.classList.add('over')}}));
     ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,()=>drop.classList.remove('over')));

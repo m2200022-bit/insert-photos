@@ -168,6 +168,9 @@ input[type=color]{width:38px;height:30px;border:1px solid var(--line);border-rad
     <button class="btn" id="btnSaveNow" type="button">حفظ</button>
     <button class="btn" id="btnSaveNew" type="button" title="يحفظ المشروع الحالي ثم يفتح مشروعاً جديداً بنفس التصميم ويطلب الصور">حفظ ومشروع جديد</button>
     <input type="file" id="projFile" accept=".json,application/json" hidden>
+    <button class="btn" id="btnUndo" type="button" title="تراجع (Ctrl+Z)" disabled>↶ تراجع</button>
+    <button class="btn" id="btnRedo" type="button" title="إعادة (Ctrl+Y)" disabled>↷ إعادة</button>
+    <button class="btn" id="btnPrint" type="button" title="طباعة الصفحات مباشرة">طباعة</button>
     <button class="btn primary" id="btnGoExport" type="button">تصدير Word / PDF</button>
   </header>
   <div class="main">
@@ -979,7 +982,19 @@ function drawPageBorder(ctx,u,W,H){
 
 /* ================= preview ================= */
 let PAGE_LAYOUTS=[];let rafPending=false;let PREV_SIG='';
-function schedule(){if(rafPending)return;rafPending=true;requestAnimationFrame(()=>{rafPending=false;renderPreview();persist()})}
+function schedule(){histMark();if(rafPending)return;rafPending=true;requestAnimationFrame(()=>{rafPending=false;renderPreview();persist()})}
+/* ---- التراجع والإعادة: لقطة من الإعدادات وترتيب الصور بعد كل تعديل، حتى 40 خطوة ---- */
+let HIST=[],HPOS=-1,histT=null,HIST_APPLYING=false;const IMGCACHE=new Map();
+const histSnap=()=>JSON.stringify({S,imgs:IMGS.map(({el,src,...r})=>r)});
+function histMark(now){if(HIST_APPLYING)return;clearTimeout(histT);const go=()=>{IMGS.forEach(im=>{if(im.el&&!IMGCACHE.has(im.id))IMGCACHE.set(im.id,{src:im.src,el:im.el,w:im.w,h:im.h})});
+  const sn=histSnap();if(HIST[HPOS]===sn)return;HIST=HIST.slice(0,HPOS+1);HIST.push(sn);if(HIST.length>40)HIST.shift();HPOS=HIST.length-1;histUI()};now?go():histT=setTimeout(go,450)}
+function histReset(){clearTimeout(histT);HIST=[];HPOS=-1;IMGCACHE.clear();histMark(true)}
+function histUI(){const u=$('#btnUndo'),r=$('#btnRedo');if(u)u.disabled=HPOS<=0;if(r)r.disabled=HPOS>=HIST.length-1}
+async function histGo(d){clearTimeout(histT);const cur=histSnap();if(HIST[HPOS]!==cur&&d<0){HIST=HIST.slice(0,HPOS+1);HIST.push(cur);HPOS=HIST.length-1}
+  const n=HPOS+d;if(n<0||n>=HIST.length)return;HPOS=n;const st=JSON.parse(HIST[HPOS]);HIST_APPLYING=true;
+  const lg=S.header.logo,lg2=S.header.logo2;S=st.S;IMGS=st.imgs.map(r=>({...r,...(IMGCACHE.get(r.id)||{})})).filter(x=>x.el);
+  if(S.header.logo!==lg)LOGO_EL=S.header.logo?await loadImg(S.header.logo).catch(()=>null):null;if(S.header.logo2!==lg2)LOGO2_EL=S.header.logo2?await loadImg(S.header.logo2).catch(()=>null):null;
+  if(selId&&!IMGS.some(x=>x.id===selId))selId=null;$('#docName').value=S.docName||'';PREV_SIG='';renderPanel();renderPreview();persist();HIST_APPLYING=false;histUI();toast(d<0?'تم التراجع':'تمت الإعادة')}
 const PER_OPTS=[1,2,3,4,6,8,9];
 function renderPreview(){
   const wrap=$('#pages');const N=pagesCount();const {W,H}=pageDims();const cov=hasCover();
@@ -1098,7 +1113,7 @@ async function applyProject(d){
   if(!d||!d.S)throw new Error('bad');S=deepMerge(JSON.parse(JSON.stringify(DEF)),d.S);
   IMGS=[];for(const r of (d.images||[])){try{let src=r.src,inline=!!src;if(!src)src=await dbGet('imgs',r.id);if(!src)continue;const el=await loadImg(src);IMGS.push({...r,src,el,w:el.naturalWidth,h:el.naturalHeight});if(!inline)STORED.add(r.id)}catch(e){}}
   LOGO_EL=S.header.logo?await loadImg(S.header.logo).catch(()=>null):null;LOGO2_EL=S.header.logo2?await loadImg(S.header.logo2).catch(()=>null):null;
-  CUR_ID=d.id||uid();S.docName=S.docName||d.name||'';$('#docName').value=S.docName||'';selId=null;
+  CUR_ID=d.id||uid();S.docName=S.docName||d.name||'';$('#docName').value=S.docName||'';selId=null;setTimeout(histReset,0);
 }
 function deepMerge(a,b){for(const k in b){if(b[k]&&typeof b[k]==='object'&&!Array.isArray(b[k])&&a[k]&&typeof a[k]==='object')a[k]=deepMerge(a[k],b[k]);else a[k]=b[k]}return a}
 async function restore(){
@@ -1115,7 +1130,7 @@ function resetView(){$('#pages').innerHTML='';renderPanel();schedule()}
 function newProjectState(keepDesign){const keep=JSON.parse(JSON.stringify(S));S=JSON.parse(JSON.stringify(DEF));
   if(keepDesign){['page','border','frame','num','pnum','header','title','exp'].forEach(k=>S[k]=keep[k])}
   S.pageTitles={};S.docName='مشروع جديد '+new Date().toLocaleDateString('ar-QA',{day:'numeric',month:'long'});IMGS=[];selId=null;CUR_ID=uid();$('#docName').value=S.docName;
-  if(!keepDesign){LOGO_EL=null;LOGO2_EL=null}}
+  if(!keepDesign){LOGO_EL=null;LOGO2_EL=null}setTimeout(histReset,0)}
 async function saveAndNew(){
   // capture the picker gesture first, then save the old project in the background
   const snap={id:CUR_ID||uid(),data:projectData(),thumb:makeThumb(),count:IMGS.length,pages:pagesCount()};snap.data.id=snap.id;const snapImgs=IMGS.slice();storeImgs(snapImgs);
@@ -1140,6 +1155,18 @@ async function writeToFolder(id,quiet){
     let fh;try{fh=await DIR.getFileHandle(fileNameFor(rec),{create:true})}catch(e){fh=await DIR.getFileHandle(`lawh__${id}.lawh.json`,{create:true})}const full=await fullData(rec.data);const w=await fh.createWritable();await w.write(JSON.stringify(full));await w.close();for(const n of stale){if(n!==fh.name){try{await DIR.removeEntry(n)}catch(e){}}}lastSync=Date.now();updateSyncState();return true}
   catch(e){return false}
 }
+
+/* ---- مزامنة المفضلة والتصاميم المحذوفة والقوالب عبر مجلد OneDrive (ملف lawh-settings.json) ---- */
+const LIBFILE='lawh-settings.json';let libT=null;
+const libStamp=()=>{try{return +localStorage.getItem('lawh-lib-updated')||0}catch(e){return 0}};
+function libTouched(){try{localStorage.setItem('lawh-lib-updated',String(Date.now()))}catch(e){}if(DIR){clearTimeout(libT);libT=setTimeout(()=>writeLibFile(true),3000)}}
+async function writeLibFile(quiet){if(!DIR||!(await dirPerm(!quiet)))return false;try{const data={v:1,updated:libStamp()||Date.now(),fav:LIB_FAV,hidden:LIB_HIDDEN,templates:await userTemplates()};
+  const fh=await DIR.getFileHandle(LIBFILE,{create:true});const w=await fh.createWritable();await w.write(JSON.stringify(data));await w.close();return true}catch(e){return false}}
+async function syncLibFile(){if(!DIR)return;try{let remote=null;try{const fh=await DIR.getFileHandle(LIBFILE);remote=JSON.parse(await (await fh.getFile()).text())}catch(e){}
+  const local=libStamp();
+  if(remote&&(remote.updated||0)>local){LIB_FAV=remote.fav||{};LIB_HIDDEN=remote.hidden||{};try{localStorage.setItem('lawh-fav',JSON.stringify(LIB_FAV));localStorage.setItem('lawh-hidden',JSON.stringify(LIB_HIDDEN));localStorage.setItem('lawh-lib-updated',String(remote.updated))}catch(e){}
+    if(Array.isArray(remote.templates))await dbPut('meta','templates',remote.templates);return 'down'}
+  if(!remote||local>(remote.updated||0)){await writeLibFile(true);return 'up'}}catch(e){}}
 async function syncFolder(ask){
   if(!DIR){toast('اربط مجلد OneDrive أولاً');return}
   if(!(await dirPerm(ask))){toast('اسمح للمتصفح بالوصول إلى المجلد لإكمال المزامنة');return}
@@ -1155,6 +1182,7 @@ async function syncFolder(ask){
     }catch(e){}
   }
   for(const r of local){if(!seen.has(r.id)){await writeToFolder(r.id,true);up++}}
+  const lr=await syncLibFile();if(lr==='down')renderPanel();
   lastSync=Date.now();updateSyncState();resetView();renderProjects();toast(`اكتملت المزامنة: ${up} رُفع، ${down} نُزّل`);
 }
 function updateSyncState(){const el=$('#syncState');if(!el)return;el.className='syncstate'+(DIR?' on':'');el.innerHTML=`<i></i>${DIR?`مربوط بمجلد «${xmlEsc(DIR.name)}»${lastSync?` · آخر مزامنة ${new Date(lastSync).toLocaleTimeString('ar-QA',{hour:'2-digit',minute:'2-digit'})}`:''}`:'غير مربوط'}`}
@@ -1331,9 +1359,9 @@ async function wireTemplates(){
     const t=find(cv.dataset.tpl);const keep=S;S=deepMerge(JSON.parse(JSON.stringify(S)),JSON.parse(JSON.stringify(t.d)));S.cover={...S.cover,on:false};
     try{const {W}=pageDims();const u=cv.width/W;const ctx=cv.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);renderPage(ctx,u,0)}catch(e){}S=keep});
   gal.querySelectorAll('[data-tdel]').forEach(b=>b.onclick=()=>{pendingTplDel=b.dataset.tdel;wireTemplates()});
-  gal.querySelectorAll('[data-tdy]').forEach(b=>b.onclick=async()=>{const list=(await userTemplates()).filter(t=>t.id!==b.dataset.tdy);await dbPut('meta','templates',list);pendingTplDel=null;wireTemplates();toast('حُذف القالب')});
+  gal.querySelectorAll('[data-tdy]').forEach(b=>b.onclick=async()=>{const list=(await userTemplates()).filter(t=>t.id!==b.dataset.tdy);await dbPut('meta','templates',list);libTouched();pendingTplDel=null;wireTemplates();toast('حُذف القالب')});
   $('#tplSave').onclick=async()=>{const name=$('#tplName').value.trim();if(!name){toast('اكتب اسماً للقالب');$('#tplName').focus();return}
-    const list=await userTemplates();list.unshift({id:uid(),name,d:designOf()});try{await dbPut('meta','templates',list);toast('حُفظ القالب «'+name+'»');$('#tplName').value='';wireTemplates()}catch(e){toast('تعذّر حفظ القالب')}};
+    const list=await userTemplates();list.unshift({id:uid(),name,d:designOf()});try{await dbPut('meta','templates',list);libTouched();toast('حُفظ القالب «'+name+'»');$('#tplName').value='';wireTemplates()}catch(e){toast('تعذّر حفظ القالب')}};
 }
 
 
@@ -1341,8 +1369,8 @@ async function wireTemplates(){
 const LIB_KINDS={frameGal:['frame','إطار'],pnGal:['pnum','رقم صفحة'],hGal:['head','ترويسة'],bGal:['border','إطار صفحة'],shapeGal:['shape','شكل رقم'],cGal:['cover','غلاف']};
 let LIB_HIDDEN=(()=>{try{return JSON.parse(localStorage.getItem('lawh-hidden')||'{}')||{}}catch(e){return {}}})();
 let LIB_FAV=(()=>{try{return JSON.parse(localStorage.getItem('lawh-fav')||'{}')||{}}catch(e){return {}}})();const LIB_ONLY={};
-function favSave(){try{localStorage.setItem('lawh-fav',JSON.stringify(LIB_FAV))}catch(e){}}
-function libSave(){try{localStorage.setItem('lawh-hidden',JSON.stringify(LIB_HIDDEN))}catch(e){}persist()}
+function favSave(){try{localStorage.setItem('lawh-fav',JSON.stringify(LIB_FAV))}catch(e){}libTouched()}
+function libSave(){try{localStorage.setItem('lawh-hidden',JSON.stringify(LIB_HIDDEN))}catch(e){}libTouched();persist()}
 function decorateLib(){
   Object.entries(LIB_KINDS).forEach(([gid,[kind,label]])=>{const g=document.getElementById(gid);if(!g)return;const hid=LIB_HIDDEN[kind]||[];const fav=LIB_FAV[kind]||[];
     // المفضلة: نجمة على كل تصميم، والمفضل يتقدّم أول القائمة
@@ -1617,19 +1645,30 @@ $('#btnGoExport').onclick=()=>showTab('export');
 $('#btnProjects').onclick=showProjects;
 $('#btnSaveNow').onclick=async()=>{await saveCurrent();let msg='حُفظ «'+(S.docName||'المشروع')+'» في مشاريعي';if(DIR&&await writeToFolder(CUR_ID,false))msg+=' وفي OneDrive';toast(msg)};
 $('#btnSaveNew').onclick=saveAndNew;
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#projects').hidden)hideProjects();if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();$('#btnSaveNow').click()}});
+document.addEventListener('keydown',e=>{const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||'')&&e.target.type!=='range'&&e.target.type!=='color'&&e.target.type!=='checkbox';
+  if((e.ctrlKey||e.metaKey)&&!typing&&$('#projects').hidden){const k=e.key.toLowerCase();if(k==='z'&&!e.shiftKey){e.preventDefault();histGo(-1);return}if(k==='y'||(k==='z'&&e.shiftKey)){e.preventDefault();histGo(1);return}}
+  if(e.key==='Escape'&&!$('#projects').hidden)hideProjects();if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();$('#btnSaveNow').click()}});
 $('#projFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{const d=JSON.parse(await f.text());await saveCurrent();await applyProject(d);const ex=await dbGet('projects',CUR_ID);if(ex&&ex.updated>(d.updated||0)){CUR_ID=uid()}await saveCurrent();hideProjects();resetView();toast('فُتح المشروع وأضيف إلى مشاريعي')}catch(err){toast('هذا الملف ليس مشروعاً صالحاً من استوديو لَوح')}};
 const pw=$('#previewWrap');
 pw.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('Files'))e.preventDefault()});
 pw.addEventListener('drop',e=>{if(e.dataTransfer.files.length){e.preventDefault();addFiles(e.dataTransfer.files)}});
 window.addEventListener('resize',schedule);
 
+
+/* ---- طباعة مباشرة: كل صفحة صورة بدقة عالية في صفحة طباعة بالمقاس نفسه ---- */
+$('#btnUndo').onclick=()=>histGo(-1);$('#btnRedo').onclick=()=>histGo(1);
+$('#btnPrint').onclick=async()=>{const btn=$('#btnPrint');if(btn.disabled)return;btn.disabled=true;toast('جارٍ تجهيز الصفحات للطباعة…');
+  try{await document.fonts.ready;const {W,H}=pageDims();const N=pagesCount();const imgs=[];for(let i=0;i<N;i++){const {cv}=await pageCanvas(i,7,{});imgs.push(cv.toDataURL('image/jpeg',0.92));await nextFrame()}
+    const old=document.getElementById('printFrame');if(old)old.remove();const f=document.createElement('iframe');f.id='printFrame';f.style.cssText='position:fixed;width:0;height:0;border:0;right:0;bottom:0';document.body.appendChild(f);
+    const doc=f.contentDocument;doc.open();doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${xmlEsc(safeName())}</title><style>@page{size:${W}mm ${H}mm;margin:0}html,body{margin:0;padding:0}img{display:block;width:${W}mm;height:${H}mm;page-break-after:always;break-after:page}img:last-child{page-break-after:auto;break-after:auto}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>${imgs.map(s=>`<img src="${s}">`).join('')}</body></html>`);doc.close();
+    await new Promise(r=>{const ims=[...doc.images];let n=ims.length;if(!n)r();ims.forEach(im=>{if(im.complete){if(--n===0)r()}else im.onload=im.onerror=()=>{if(--n===0)r()}})});
+    f.contentWindow.focus();f.contentWindow.print()}catch(err){toast('تعذّرت الطباعة: '+(err.message||err))}btn.disabled=false};
 (async function boot(){
   buildRail();
   const ok=await restore();
   if(!ok){for(const src of makeSamples()){try{const el=await loadImg(src);IMGS.push(newImg({src,el,w:el.naturalWidth,h:el.naturalHeight,name:'صورة نموذجية'}))}catch(e){}}
     if(IMGS[0])IMGS[0].caption='صورة نموذجية';CUR_ID=uid();S.docName='مشروع نموذجي';$('#docName').value=S.docName;}
-  renderPanel();renderPreview();
+  renderPanel();renderPreview();histReset();
   try{await document.fonts.load('800 20px Tajawal');await document.fonts.load('700 20px Tajawal');}catch(e){}
   renderPreview();refreshTiles();
 })();

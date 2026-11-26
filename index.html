@@ -187,7 +187,7 @@ const DEF={
   docName:'صور حفل التكريم',
   page:{size:'A4',orient:'portrait',perPage:4,layout3:'2+1',mt:10,mr:9,mb:10,ml:9,gap:6,ratio:'5:4',dir:'rtl'},
   border:{style:'corners',color:'#84263E',accent:'#C59D56',width:0.6,inset:5},
-  frame:{type:'executive',c1:'#17365D',c2:'#178B92',c3:'#C59D56',thick:1,shadow:0.35,corner:5},
+  frame:{type:'executive',c1:'#17365D',c2:'#178B92',c3:'#C59D56',thick:1,shadow:0.35,corner:5,feather:8},
   num:{on:true,shape:'hex',pos:'top-right',size:9,fill:'#84263E',text:'#FFFFFF',stroke:'#C59D56',start:1,digits:'latin'},
   pnum:{on:true,style:'hexline',pos:'center',size:8,color:'#84263E',color2:'#1F3A5F',accent:'#C59D56',format:'n',digits:'latin',start:1},
   header:{on:true,style:'solid',text:'فعاليات مسابقة موسكو السادسة والعشرون 2026',bg:'#84263E',fg:'#FFFFFF',line:'#C59D56',logo:null,logo2:null,sub:'',icons:false,icon:'none',bg2:'#1F3A5F'},
@@ -229,6 +229,8 @@ function strokeP(ctx,path,color,w){ctx.save();ctx.strokeStyle=color;ctx.lineWidt
 /* ================= photo drawing ================= */
 const FILTER_OK=(()=>{try{const c=document.createElement('canvas').getContext('2d');return 'filter' in c}catch(e){return false}})();
 function drawPhoto(ctx,clip,b,im,noWm){
+  const fe=im&&im.el?((im.fe!=null?im.fe:S.frame.feather)||0):0;
+  if(fe>0){drawPhotoFeather(ctx,clip,b,im,fe);if(S.wm.on&&!noWm)drawWatermark(ctx,clip,b);return}
   ctx.save();ctx.clip(clip);
   ctx.fillStyle='#F4F1EE';ctx.fillRect(b.x-2,b.y-2,b.w+4,b.h+4);
   if(!im||!im.el){ // placeholder
@@ -252,6 +254,21 @@ function drawPhoto(ctx,clip,b,im,noWm){
   ctx.restore();
   if(S.wm.on&&!noWm)drawWatermark(ctx,clip,b);
 }
+// يرسم الصورة بحواف متلاشية (شفافة) فيظهر الإطار من تحتها
+function paintImg(c,b,im){const rot=((im.rot||0)%360+360)%360,sw=rot%180!==0;const iw=sw?im.h:im.w,ih=sw?im.w:im.h;
+  const tilt=(im.tilt||0)*Math.PI/180,ca=Math.abs(Math.cos(tilt)),sa=Math.abs(Math.sin(tilt));const bw=b.w*ca+b.h*sa,bh=b.w*sa+b.h*ca;
+  const base=im.fit==='contain'?Math.min(b.w/iw,b.h/ih):Math.max(bw/iw,bh/ih);const s=base*(im.zoom||1);const dw=iw*s,dh=ih*s;
+  const cx=b.x+b.w/2+(im.ox||0)*Math.abs(dw-bw)/2,cy=b.y+b.h/2+(im.oy||0)*Math.abs(dh-bh)/2;
+  c.save();c.translate(cx,cy);c.rotate(rot*Math.PI/180+tilt);c.imageSmoothingQuality='high';const br=im.br??1,ct=im.ct??1,sat=im.sat??1;
+  if(FILTER_OK&&(br!==1||ct!==1||sat!==1))c.filter=`brightness(${br}) contrast(${ct}) saturate(${sat})`;c.drawImage(im.el,-im.w*s/2,-im.h*s/2,im.w*s,im.h*s);c.restore()}
+function drawPhotoFeather(ctx,clip,b,im,fe){const W=Math.max(1,Math.ceil(b.w)),H=Math.max(1,Math.ceil(b.h));const r=Math.max(1,Math.min(b.w,b.h)*fe/100);
+  const off=document.createElement('canvas');off.width=W;off.height=H;const o=off.getContext('2d');o.translate(-b.x,-b.y);paintImg(o,b,im);
+  const m=document.createElement('canvas');m.width=W;m.height=H;const q=m.getContext('2d');q.translate(-b.x,-b.y);q.fillStyle='#000';q.fill(clip);
+  if(FILTER_OK){q.globalCompositeOperation='destination-out';q.lineWidth=r*1.5;q.lineJoin='round';q.stroke(clip);
+    const m2=document.createElement('canvas');m2.width=W;m2.height=H;const q2=m2.getContext('2d');q2.filter=`blur(${r*0.55}px)`;q2.drawImage(m,0,0);o.setTransform(1,0,0,1,0,0);o.globalCompositeOperation='destination-in';o.drawImage(m2,0,0)}
+  else{q.setTransform(1,0,0,1,0,0);q.globalCompositeOperation='destination-out';[[0,0,r,0,0,0,r,H],[W,0,W-r,0,W-r,0,r,H],[0,0,0,r,0,0,W,r],[0,H,0,H-r,0,H-r,W,r]].forEach(([x0,y0,x1,y1,rx,ry,rw,rh])=>{const g=q.createLinearGradient(x0,y0,x1,y1);g.addColorStop(0,'rgba(0,0,0,1)');g.addColorStop(1,'rgba(0,0,0,0)');q.fillStyle=g;q.fillRect(rx,ry,rw,rh)});
+    o.setTransform(1,0,0,1,0,0);o.globalCompositeOperation='destination-in';o.drawImage(m,0,0)}
+  ctx.save();ctx.clip(clip);ctx.drawImage(off,b.x,b.y,W,H);ctx.restore()}
 function drawWatermark(ctx,clip,b){
   const M=S.wm;const useLogo=M.type==='logo'&&LOGO_EL;const txt=M.text||S.header.text||'';if(!useLogo&&!txt)return;
   ctx.save();ctx.clip(clip);ctx.globalAlpha=M.opacity;const sz=Math.min(b.w,b.h)*M.size/100;const pad=sz*0.25;
@@ -388,7 +405,7 @@ function drawPremium(ctx,b,f,im,u,sp){
   const PB=photoBox(sp.shape,P);const shp=shapeOf(sp.shape,PB);
   if(sp.ring){const q=new Path2D();q.arc(PB.x+PB.w/2,PB.y+PB.h/2,PB.w/2+t*3,0,7);ctx.fillStyle=col(sp.ring);ctx.fill(q)}
   if(!sp.paper){strokeP(ctx,shapeOf(sp.shape,ins(PB,-t*2.6)),G,Math.max(0.5,t*0.45))}
-  ctx.fillStyle=dark?CREAM:'#FFFFFF';ctx.fill(shapeOf(sp.shape,ins(PB,-t*1.6)));
+  if(!((im&&im.fe!=null?im.fe:f.feather)>0)){ctx.fillStyle=dark?CREAM:'#FFFFFF';ctx.fill(shapeOf(sp.shape,ins(PB,-t*1.6)))}
   strokeP(ctx,shapeOf(sp.shape,ins(PB,-t*1.1)),G,t*1.1);
   drawPhoto(ctx,shp,PB,im);
   // overlays
@@ -1379,6 +1396,7 @@ function renderPanel(){
       ${H.range('imOx','أفقي',im,'ox',-1,1,0.01)}
       ${H.range('imOy','رأسي',im,'oy',-1,1,0.01)}
       ${H.range('imTilt','تصحيح الميلان',im,'tilt',-12,12,0.1,'°')}
+      ${H.range('imFe','تلاشي الحواف',{fe:im.fe!=null?im.fe:S.frame.feather},'fe',0,30,1,'%')}
       <div class="row"><label for="imCap">التعليق</label><div class="ctl"><input type="text" id="imCap" value="${xmlEsc(im.caption||'')}" placeholder="مثال: تكريم الفائز بالمركز الأول"></div></div>
       <h3 style="margin-top:4px">تحسين الصورة${FILTER_OK?'':' (غير مدعوم في هذا المتصفح)'}</h3>
       ${H.range('imBr','الإضاءة',im,'br',0.5,1.6,0.01)}${H.range('imCt','التباين',im,'ct',0.5,1.6,0.01)}${H.range('imSat','تشبّع الألوان',im,'sat',0,2,0.01)}
@@ -1400,7 +1418,7 @@ function renderPanel(){
     <h3 style="margin:16px 0 8px;font-size:13px">الإطارات الهندسية (${FRAMES.length-PF.length})</h3><div class="gallery">${FRAMES.filter(f=>!f.premium).map(f=>`<button type="button" class="tile" data-v="${f.id}" aria-pressed="${f.id===F.type}"><canvas data-frame="${f.id}" width="200" height="160"></canvas>${f.name}</button>`).join('')}</div></div>
     <div class="sec"><h3>الألوان</h3><div class="swatches" id="pal">${PALETTES.map((p,i)=>`<button type="button" class="swatch" data-i="${i}"><i>${p.c.map(c=>`<b style="background:${c}"></b>`).join('')}</i>${p.n}</button>`).join('')}</div>
     ${H.color('fC1','اللون الأساسي',F.c1)}${H.color('fC2','اللون الثانوي',F.c2)}${H.color('fC3','لون الزخرفة',F.c3)}</div>
-    <div class="sec"><h3>الشكل</h3>${H.range('fT','السماكة',F,'thick',0.3,3,0.05,'ملم')}${H.range('fS','الظل',F,'shadow',0,1,0.05)}${H.range('fK','الزوايا',F,'corner',0,14,0.5,'ملم')}</div>`;
+    <div class="sec"><h3>الشكل</h3>${H.range('fT','السماكة',F,'thick',0.3,3,0.05,'ملم')}${H.range('fS','الظل',F,'shadow',0,1,0.05)}${H.range('fK','الزوايا',F,'corner',0,14,0.5,'ملم')}${H.range('fFe','تلاشي الحواف',F,'feather',0,30,1,'%')}<p class="hint" style="margin:0">يجعل حواف الصورة شفافة تدريجياً فتتداخل مع الإطار. 0 يعني بلا تلاشٍ.</p></div>`;
   }
   if(curTab==='num'){const N=S.num;
     h+=`<h2>ترقيم الصور</h2><p class="hint">يُرقَّم كل إطار تلقائياً حسب ترتيب الصور، ويستمر الترقيم عبر الصفحات.</p>
@@ -1494,13 +1512,13 @@ function wirePanel(){
       t.addEventListener('drop',e=>{if(dragI!==null){e.preventDefault();const f=dragI;dragI=null;moveImg(f,i)}})});
     const im=IMGS.find(x=>x.id===selId);
     document.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>sortImgs(b.dataset.sort));
-    if(im){bindSeg('imFit',im,'fit');bindRange('imZoom',im,'zoom','×');bindRange('imOx',im,'ox');bindRange('imOy',im,'oy');bindRange('imTilt',im,'tilt','°');
+    if(im){bindSeg('imFit',im,'fit');bindRange('imZoom',im,'zoom','×');bindRange('imOx',im,'ox');bindRange('imOy',im,'oy');bindRange('imTilt',im,'tilt','°');bindRange('imFe',im,'fe','%');
       bindRange('imBr',im,'br');bindRange('imCt',im,'ct');bindRange('imSat',im,'sat');bindText('imCap',im,'caption');
       $('#imAuto').onclick=()=>{if(autoEnhance(im)){renderPanel();schedule();toast('حُسّنت الصورة')}};
       $('#imAutoAll').onclick=()=>{let n=0;IMGS.forEach(x=>{if(autoEnhance(x))n++});renderPanel();schedule();toast(`حُسّنت ${n} صورة`)};
       $('#imCover').onclick=()=>{S.cover.hero=IMGS.indexOf(im);S.cover.on=true;schedule();toast('اختيرت صورة الغلاف وفُعّل الغلاف')};
       $('#imRot').onclick=()=>{im.rot=((im.rot||0)+90)%360;schedule()};
-      $('#imReset').onclick=()=>{Object.assign(im,{fit:'cover',zoom:1,ox:0,oy:0,rot:0,tilt:0,br:1,ct:1,sat:1});renderPanel();schedule()};
+      $('#imReset').onclick=()=>{Object.assign(im,{fit:'cover',zoom:1,ox:0,oy:0,rot:0,tilt:0,br:1,ct:1,sat:1});delete im.fe;renderPanel();schedule()};
       $('#imUp').onclick=()=>moveImg(IMGS.indexOf(im),IMGS.indexOf(im)-1);$('#imDown').onclick=()=>moveImg(IMGS.indexOf(im),IMGS.indexOf(im)+1);
       $('#imRep').onclick=()=>$('#replaceFile').click();
       $('#imDel').onclick=()=>{const i=IMGS.indexOf(im);IMGS.splice(i,1);selId=IMGS[Math.min(i,IMGS.length-1)]?.id||null;renderPanel();schedule()}}
@@ -1511,7 +1529,7 @@ function wirePanel(){
     document.querySelectorAll('#frameGal .tile').forEach(b=>b.onclick=()=>{F.type=b.dataset.v;document.querySelectorAll('#frameGal .tile').forEach(x=>x.setAttribute('aria-pressed',x===b));schedule()});
     document.querySelectorAll('#pal .swatch').forEach(b=>b.onclick=()=>{const c=PALETTES[+b.dataset.i].c;F.c1=c[0];F.c2=c[1];F.c3=c[2];renderPanel();schedule()});
     bindColor('fC1',F,'c1',refreshTiles);bindColor('fC2',F,'c2',refreshTiles);bindColor('fC3',F,'c3',refreshTiles);
-    bindRange('fT',F,'thick','ملم',refreshTiles);bindRange('fS',F,'shadow','',refreshTiles);bindRange('fK',F,'corner','ملم',refreshTiles)}
+    bindRange('fT',F,'thick','ملم',refreshTiles);bindRange('fS',F,'shadow','',refreshTiles);bindRange('fK',F,'corner','ملم',refreshTiles);bindRange('fFe',F,'feather','%',refreshTiles)}
   if(curTab==='num'){const N=S.num;bindToggle('nOn',N,'on');
     document.querySelectorAll('#shapeGal .tile').forEach(b=>b.onclick=()=>{N.shape=b.dataset.v;document.querySelectorAll('#shapeGal .tile').forEach(x=>x.setAttribute('aria-pressed',x===b));schedule()});
     bindSelect('nPos',N,'pos');bindRange('nSize',N,'size','ملم');bindSeg('nDig',N,'digits',refreshTiles);

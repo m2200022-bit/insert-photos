@@ -122,6 +122,10 @@ input[type=color]{width:38px;height:30px;border:1px solid var(--line);border-rad
 .pcard .acts{display:flex;gap:6px;flex-wrap:wrap}
 .pempty{border:1.5px dashed var(--line);border-radius:14px;padding:30px;text-align:center;color:var(--muted)}
 .tag{font-size:11px;background:var(--brand);color:var(--brand-ink);border-radius:6px;padding:1px 7px;margin-inline-start:6px;font-weight:700}
+.tile .tdel{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--surface);border:1px solid var(--line);color:var(--danger);font:700 15px/20px Tajawal,sans-serif;text-align:center;opacity:.0;transition:opacity .15s;cursor:pointer;z-index:2}
+.tile:hover .tdel,.tile:focus-within .tdel,.tile .tdel:focus-visible{opacity:1}
+@media (hover:none){.tile .tdel{opacity:.85}}
+.librest{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;font-size:12.5px;color:var(--muted);background:var(--surface2);border-radius:8px;padding:6px 10px}
 @media (max-width: 900px){
   html,body{height:auto}.app{height:auto;display:block}
   .main{display:block}
@@ -1283,6 +1287,26 @@ async function wireTemplates(){
     const list=await userTemplates();list.unshift({id:uid(),name,d:designOf()});try{await dbPut('meta','templates',list);toast('حُفظ القالب «'+name+'»');$('#tplName').value='';wireTemplates()}catch(e){toast('تعذّر حفظ القالب')}};
 }
 
+
+/* ================= إخفاء التصاميم من المكتبات ================= */
+const LIB_KINDS={frameGal:['frame','إطار'],pnGal:['pnum','رقم صفحة'],hGal:['head','ترويسة'],bGal:['border','إطار صفحة'],shapeGal:['shape','شكل رقم'],cGal:['cover','غلاف']};
+let LIB_HIDDEN=(()=>{try{return JSON.parse(localStorage.getItem('lawh-hidden')||'{}')||{}}catch(e){return {}}})();
+function libSave(){try{localStorage.setItem('lawh-hidden',JSON.stringify(LIB_HIDDEN))}catch(e){}persist()}
+function decorateLib(){
+  Object.entries(LIB_KINDS).forEach(([gid,[kind,label]])=>{const g=document.getElementById(gid);if(!g)return;const hid=LIB_HIDDEN[kind]||[];
+    g.querySelectorAll('.tile[data-v]').forEach(t=>{const v=t.dataset.v;
+      if(hid.includes(v)&&t.getAttribute('aria-pressed')!=='true'){t.remove();return}
+      if(t.querySelector('.tdel'))return;const x=document.createElement('span');x.className='tdel';x.setAttribute('role','button');x.tabIndex=0;x.title='حذف من القائمة';x.setAttribute('aria-label','حذف هذا '+label+' من القائمة');x.textContent='×';
+      const go=e=>{e.stopPropagation();e.preventDefault();if(t.getAttribute('aria-pressed')==='true'){toast('هذا التصميم مستخدم الآن. اختر غيره أولاً ثم احذفه');return}
+        LIB_HIDDEN[kind]=[...new Set([...(LIB_HIDDEN[kind]||[]),v])];libSave();t.remove();addRestore(g,kind,label);toast('حُذف من القائمة، ويمكنك استعادته')};
+      x.addEventListener('click',go);x.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' ')go(e)});t.style.position='relative';t.appendChild(x)});
+    addRestore(g,kind,label)});
+}
+function addRestore(g,kind,label){const n=(LIB_HIDDEN[kind]||[]).length;let r=g.parentElement.querySelector(`.librest[data-k="${kind}"]`);
+  if(!n){if(r)r.remove();return}
+  if(!r){r=document.createElement('div');r.className='librest';r.dataset.k=kind;g.insertAdjacentElement('afterend',r)}
+  r.innerHTML=`<span>${n} ${n===1?'تصميم محذوف':'تصاميم محذوفة'}</span><button type="button" class="btn small">استعادة الكل</button>`;
+  r.querySelector('button').onclick=()=>{delete LIB_HIDDEN[kind];libSave();renderPanel();toast('أُعيدت التصاميم المحذوفة')}}
 /* ================= panel UI ================= */
 const ICONS={
  images:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M4 17l5-5 4 4 3-3 4 4"/></svg>',
@@ -1448,7 +1472,7 @@ function renderPanel(){
     <div class="sec"><h3>حفظ التصميم الحالي كقالب</h3><div class="row"><div class="ctl"><input type="text" id="tplName" placeholder="مثال: قالب المسابقات"><button class="btn small primary" id="tplSave" type="button">حفظ</button></div></div></div>
     <div class="sec"><h3>قوالبي وقوالب جاهزة</h3><div class="gallery two" id="tplGal"><p class="hint">جارٍ التحميل…</p></div></div>`;
   }
-  p.innerHTML=h;wirePanel();refreshTiles();
+  p.innerHTML=h;wirePanel();decorateLib();refreshTiles();
 }
 function syncEditor(){const im=IMGS.find(x=>x.id===selId);if(!im)return;[['imZoom','zoom','×'],['imOx','ox',''],['imOy','oy','']].forEach(([id,k,u])=>{const el=document.getElementById(id);if(el){el.value=im[k];document.getElementById(id+'-o').textContent=fmtV(im[k],u)}})}
 function wirePanel(){

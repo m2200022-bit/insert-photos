@@ -141,6 +141,10 @@ input[type=color]{width:38px;height:30px;border:1px solid var(--line);border-rad
 .tile .tfav.on{background:var(--gold);color:#fff;border-color:var(--gold)}
 @media (hover:none){.tile .tfav{opacity:.85}}
 .favbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:12px;color:var(--muted)}
+#swapGhost{position:fixed;z-index:60;pointer-events:none;transform:translate(-50%,-115%);background:var(--surface);border:2px solid var(--line);border-radius:10px;padding:5px;display:grid;gap:4px;justify-items:center;box-shadow:0 8px 24px rgba(0,0,0,.25);font-size:11.5px;color:var(--muted)}
+#swapGhost img{width:120px;height:80px;object-fit:cover;border-radius:6px}
+#swapGhost.ok{border-color:var(--brand);color:var(--brand)}
+.showall{display:flex;justify-content:center;margin-top:10px}
 .librest{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;font-size:12.5px;color:var(--muted);background:var(--surface2);border-radius:8px;padding:6px 10px}
 @media (max-width: 900px){
   html,body{height:auto}.app{height:auto;display:block}
@@ -204,7 +208,7 @@ input[type=color]{width:38px;height:30px;border:1px solid var(--line);border-rad
 const PAGE_SIZES={A4:[210,297],A3:[297,420],A5:[148,210],Letter:[215.9,279.4]};
 const DEF={
   docName:'صور حفل التكريم',
-  page:{size:'A4',orient:'portrait',perPage:4,layout3:'2+1',mt:10,mr:9,mb:10,ml:9,gap:6,ratio:'5:4',dir:'rtl'},
+  page:{size:'A4',orient:'portrait',perPage:4,layout3:'2+1',mt:10,mr:9,mb:10,ml:9,gap:6,ratio:'5:4',dir:'rtl',smart:true},
   border:{style:'corners',color:'#84263E',accent:'#C59D56',width:0.6,inset:5},
   frame:{type:'executive',c1:'#17365D',c2:'#178B92',c3:'#C59D56',thick:1,shadow:0.35,corner:5,feather:8},
   num:{on:true,shape:'hex',pos:'top-right',size:9,fill:'#84263E',text:'#FFFFFF',stroke:'#C59D56',start:1,digits:'latin'},
@@ -853,6 +857,9 @@ function renderPage(ctx,u,ti,mode={}){
   if(!mode.skipDecor) drawPageBorder(ctx,u,W,H);
   if(L.header&&!mode.skipDecor) drawHeader(ctx,u,L.header,S.header);
   if(L.title&&!mode.skipTitle){ctx.fillStyle=S.title.color;const fs=S.title.size*0.3528*u;ctx.font=`800 ${fs}px Tajawal, sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.direction='rtl';ctx.fillText(L.title.text,W*u/2,(L.title.y+L.title.h/2)*u)}
+  if(S.page.smart&&S.page.ratio!=='fill')L.cells.forEach(c=>{const im=imgs[c.slot];if(!im||!im.w)return;const sw=((im.rot||0)%180+180)%180!==0;const ew=sw?im.h:im.w,eh=sw?im.w:im.h;
+    // صورة طولية في خانة عرضية: إطار طولي بالنسبة المقلوبة في منتصف الخانة (والعكس)، فلا تُقصّ الرؤوس
+    if(eh>ew*1.15&&c.w>c.h*1.05){const nw=c.h*c.h/c.w;c.x+=(c.w-nw)/2;c.w=nw}else if(ew>eh*1.15&&c.h>c.w*1.05){const nh=c.w*c.w/c.h;c.y+=(c.h-nh)/2;c.h=nh}});
   if(!mode.skipCells) L.cells.forEach(c=>drawCell(ctx,u,c,imgs[c.slot],e.start+c.slot));
   if(S.pnum.on&&!mode.skipDecor) drawPageNum(ctx,u,W,H,L,pp+S.pnum.start,plan.length+S.pnum.start-1,S.pnum);
   if(L.qr&&!mode.skipDecor) drawQR(ctx,u,L.qr);
@@ -1028,14 +1035,22 @@ function bindCanvas(cv,ti){
     if(!im){$('#imgFiles').click();return}
     selId=im.id;if(curTab!=='images')showTab('images');else renderPanel();
     drag={x:e.clientX,y:e.clientY,im,c,mm,ox:im.ox,oy:im.oy};cv.setPointerCapture(e.pointerId);schedule()});
+  cv.dataset.ti=ti;
   cv.addEventListener('pointermove',e=>{if(!drag)return;const im=drag.im;const c=drag.c;
+    // الخروج من خانة الصورة يحوّل السحب إلى تبديل مكان مع صورة أخرى
+    const r0=cv.getBoundingClientRect();const px=(e.clientX-r0.left)*drag.mm,py=(e.clientY-r0.top)*drag.mm;const out=px<c.x-3||px>c.x+c.w+3||py<c.y-3||py>c.y+c.h+3;
+    if(out&&!drag.swap){drag.swap=true;im.ox=drag.ox;im.oy=drag.oy;syncEditor();schedule();const g=document.createElement('div');g.id='swapGhost';g.innerHTML=`<img src="${im.src}" alt=""><span>أفلتها فوق صورة أخرى للتبديل</span>`;document.body.appendChild(g);drag.ghost=g}
+    if(drag.swap){const g=drag.ghost;g.style.left=e.clientX+'px';g.style.top=e.clientY+'px';const t=swapTarget(e.clientX,e.clientY);g.classList.toggle('ok',!!(t&&t.im&&t.im.id!==im.id));return}
     const rot=((im.rot||0)%360+360)%360,sw=rot%180!==0;const iw=sw?im.h:im.w,ih=sw?im.w:im.h;
     const base=im.fit==='contain'?Math.min(c.w/iw,c.h/ih):Math.max(c.w/iw,c.h/ih);const s=base*im.zoom;const ovx=Math.abs(iw*s-c.w),ovy=Math.abs(ih*s-c.h);
     const dx=(e.clientX-drag.x)*drag.mm,dy=(e.clientY-drag.y)*drag.mm;
     if(ovx>0.5)im.ox=clamp(drag.ox+2*dx/ovx,-1,1);if(ovy>0.5)im.oy=clamp(drag.oy+2*dy/ovy,-1,1);syncEditor();schedule()});
-  const end=()=>{drag=null};cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);
+  const end=e=>{if(drag&&drag.swap){drag.ghost&&drag.ghost.remove();if(e&&e.type==='pointerup'){const t=swapTarget(e.clientX,e.clientY);if(t&&t.im&&t.im.id!==drag.im.id){const a=IMGS.indexOf(drag.im),b=IMGS.indexOf(t.im);if(a>=0&&b>=0){[IMGS[a],IMGS[b]]=[IMGS[b],IMGS[a]];renderPanel();schedule();toast('تم تبديل الصورتين')}}}}drag=null};cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);
 }
 
+function swapTarget(x,y){const g=document.getElementById('swapGhost');if(g)g.style.display='none';const el=document.elementFromPoint(x,y);if(g)g.style.display='';
+  if(!el||el.tagName!=='CANVAS'||el.dataset.ti==null)return null;const L=PAGE_LAYOUTS[+el.dataset.ti];if(!L||L.cover)return null;const r=el.getBoundingClientRect();const {W}=pageDims();const mm=W/r.width;
+  const px=(x-r.left)*mm,py=(y-r.top)*mm;const c=L.cells.find(c=>px>=c.x&&px<=c.x+c.w&&py>=c.y&&py<=c.y+c.h);return c?{im:(L.imgs||[])[c.slot]}:null}
 /* ================= images ================= */
 function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src})}
 // read DateTimeOriginal from a JPEG's EXIF block (returns ms timestamp or null)
@@ -1368,6 +1383,7 @@ async function wireTemplates(){
 /* ================= إخفاء التصاميم من المكتبات ================= */
 const LIB_KINDS={frameGal:['frame','إطار'],pnGal:['pnum','رقم صفحة'],hGal:['head','ترويسة'],bGal:['border','إطار صفحة'],shapeGal:['shape','شكل رقم'],cGal:['cover','غلاف']};
 let LIB_HIDDEN=(()=>{try{return JSON.parse(localStorage.getItem('lawh-hidden')||'{}')||{}}catch(e){return {}}})();
+const LIB_REC={frame:['executive','p01','p04','p13','p14','p18','classic','polaroid'],pnum:['hexline','q05','q02','q17','q01','pill','q13','circle'],head:['solid','h-rosettes','h-band','islamic','ribbon','h-lanterns','underline','h-diag'],border:['corners','double','ornate','islamic','single','none','thickthin','kufic']};const LIB_ALL={};
 let LIB_FAV=(()=>{try{return JSON.parse(localStorage.getItem('lawh-fav')||'{}')||{}}catch(e){return {}}})();const LIB_ONLY={};
 function favSave(){try{localStorage.setItem('lawh-fav',JSON.stringify(LIB_FAV))}catch(e){}libTouched()}
 function libSave(){try{localStorage.setItem('lawh-hidden',JSON.stringify(LIB_HIDDEN))}catch(e){}libTouched();persist()}
@@ -1384,6 +1400,12 @@ function decorateLib(){
     bar.innerHTML=`<button type="button" class="btn small${LIB_ONLY[kind]?' primary':''}" ${nf?'':'disabled'}>★ المفضلة فقط${nf?' ('+nf+')':''}</button><span>${nf?'':'اضغط ☆ على أي تصميم لإضافته إلى المفضلة'}</span>`;
     bar.querySelector('button').onclick=()=>{LIB_ONLY[kind]=!LIB_ONLY[kind];renderPanel()};
     if(LIB_ONLY[kind]&&nf)g.querySelectorAll('.tile[data-v]').forEach(t=>{if(!fav.includes(t.dataset.v)&&t.getAttribute('aria-pressed')!=='true')t.hidden=true});
+    // المقترحة: ثمانية تصاميم مختارة أولاً، وزر لعرض الكل
+    const rec=LIB_REC[kind];if(rec&&!(LIB_ONLY[kind]&&nf)){const tiles=[...g.querySelectorAll('.tile[data-v]')];const total=tiles.length;
+      if(!LIB_ALL[kind])tiles.forEach(t=>{if(!rec.includes(t.dataset.v)&&!fav.includes(t.dataset.v)&&t.getAttribute('aria-pressed')!=='true')t.hidden=true});
+      g.querySelectorAll('.gallery').forEach(sg=>{const h=sg.previousElementSibling;if(h&&h.tagName==='H3')h.hidden=![...sg.children].some(t=>!t.hidden)});
+      let sb=g.nextElementSibling&&g.nextElementSibling.classList.contains('showall')?g.nextElementSibling:null;if(!sb){sb=document.createElement('div');sb.className='showall';g.insertAdjacentElement('afterend',sb)}
+      sb.innerHTML=`<button type="button" class="btn small">${LIB_ALL[kind]?'عرض المقترحة فقط':'عرض كل التصاميم ('+total+')'}</button>`;sb.querySelector('button').onclick=()=>{LIB_ALL[kind]=!LIB_ALL[kind];renderPanel()}}
     g.querySelectorAll('.tile[data-v]').forEach(t=>{const v=t.dataset.v;
       if(hid.includes(v)&&t.getAttribute('aria-pressed')!=='true'){t.remove();return}
       if(t.querySelector('.tdel'))return;const x=document.createElement('span');x.className='tdel';x.setAttribute('role','button');x.tabIndex=0;x.title='حذف من القائمة';x.setAttribute('aria-label','حذف هذا '+label+' من القائمة');x.textContent='×';
@@ -1482,7 +1504,8 @@ function renderPanel(){
     <div class="sec"><h3>عدد الصور في الصفحة</h3>${H.seg('pPer','',[[1,'1'],[2,'2'],[3,'3'],[4,'4'],[6,'6'],[8,'8'],[9,'9']],P.perPage)}
     ${P.perPage===3?H.seg('pL3','توزيع الثلاث',[['2+1','2 + 1'],['line','صف واحد']],P.layout3):''}
     ${H.select('pRatio','شكل الصورة',[['5:4','5:4 (قياسي)'],['4:3','4:3'],['3:2','3:2'],['16:9','16:9 عريض'],['1:1','مربع'],['3:4','3:4 رأسي'],['fill','ملء الخانة كاملة']],P.ratio)}
-    ${H.seg('pDir','ترتيب الصور',[['rtl','من اليمين'],['ltr','من اليسار']],P.dir)}</div>
+    ${H.seg('pDir','ترتيب الصور',[['rtl','من اليمين'],['ltr','من اليسار']],P.dir)}
+    ${H.toggle('pSmart','تخطيط ذكي: الصورة الطولية تأخذ إطاراً طولياً بدل قصّها',P.smart)}</div>
     <div class="sec"><h3>المقاس والاتجاه</h3>${H.select('pSize','المقاس',Object.keys(PAGE_SIZES).map(k=>[k,k]),P.size)}${H.seg('pOr','الاتجاه',[['portrait','رأسي'],['landscape','أفقي']],P.orient)}</div>
     <div class="sec"><h3>الهوامش والمسافات (ملم)</h3>${H.range('pMt','أعلى',P,'mt',3,40,0.5,'ملم')}${H.range('pMb','أسفل',P,'mb',3,40,0.5,'ملم')}${H.range('pMr','يمين',P,'mr',3,40,0.5,'ملم')}${H.range('pMl','يسار',P,'ml',3,40,0.5,'ملم')}${H.range('pGap','بين الصور',P,'gap',0,25,0.5,'ملم')}</div>`;
   }
@@ -1598,7 +1621,7 @@ function wirePanel(){
       $('#imRep').onclick=()=>$('#replaceFile').click();
       $('#imDel').onclick=()=>{const i=IMGS.indexOf(im);IMGS.splice(i,1);selId=IMGS[Math.min(i,IMGS.length-1)]?.id||null;renderPanel();schedule()}}
   }
-  if(curTab==='page'){const P=S.page;bindSeg('pPer',P,'perPage',renderPanel,true);bindSeg('pL3',P,'layout3');bindSelect('pRatio',P,'ratio');bindSeg('pDir',P,'dir');bindSelect('pSize',P,'size');bindSeg('pOr',P,'orient');
+  if(curTab==='page'){const P=S.page;bindSeg('pPer',P,'perPage',renderPanel,true);bindSeg('pL3',P,'layout3');bindSelect('pRatio',P,'ratio');bindSeg('pDir',P,'dir');bindToggle('pSmart',P,'smart');bindSelect('pSize',P,'size');bindSeg('pOr',P,'orient');
     [['pMt','mt'],['pMb','mb'],['pMr','mr'],['pMl','ml'],['pGap','gap']].forEach(([id,k])=>bindRange(id,P,k,'ملم'))}
   if(curTab==='frame'){const F=S.frame;
     document.querySelectorAll('#frameGal .tile').forEach(b=>b.onclick=()=>{F.type=b.dataset.v;document.querySelectorAll('#frameGal .tile').forEach(x=>x.setAttribute('aria-pressed',x===b));schedule()});

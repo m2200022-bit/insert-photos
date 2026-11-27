@@ -196,8 +196,8 @@ input[type=color]{width:38px;height:30px;border:1px solid var(--line);border-rad
 <section class="projects" id="projects" hidden dir="rtl" aria-label="مشاريعي"><div class="wrap" id="projWrap"></div></section>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="lib/jszip.min.js"></script>
-<script src="lib/jspdf.umd.min.js"></script>
+<script defer src="lib/jszip.min.js"></script>
+<script defer src="lib/jspdf.umd.min.js"></script>
 <script src="lib/qrcode.js"></script>
 <script>
 /* لا صور حقيقية في البرنامج: الصور النموذجية تُرسم عند أول فتح */
@@ -1694,7 +1694,29 @@ $('#btnPrint').onclick=async()=>{const btn=$('#btnPrint');if(btn.disabled)return
   renderPanel();renderPreview();histReset();
   try{await document.fonts.load('800 20px Tajawal');await document.fonts.load('700 20px Tajawal');}catch(e){}
   renderPreview();refreshTiles();
+  setTimeout(backupOnOpen,2500);
 })();
+/* ---- النسخ الاحتياطي عند كل فتح: يحفظ في المجلد المرتبط كل مشروع تغيّر منذ آخر نسخة + ملف المكتبة ---- */
+async function backupOnOpen(){
+  if(!DIR)return;
+  let st='prompt';try{st=await DIR.queryPermission({mode:'readwrite'})}catch(e){return}
+  const run=async()=>{
+    try{
+      await saveCurrent();
+      const last=+(localStorage.getItem('lawh-bk-last')||0);
+      const all=await dbAll('projects');
+      for(const r of all){if((r.updated||0)>last-60000)await writeToFolder(r.id,true)}
+      await writeLibFile(true);
+      const now=Date.now();try{localStorage.setItem('lawh-bk-last',String(now))}catch(e){}
+      const d=new Date(now),p=n=>String(n).padStart(2,'0');
+      toast(`تم تحديث النسخة الاحتياطية بتاريخ ${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} الساعة ${p(d.getHours())}:${p(d.getMinutes())} — في مجلد «${DIR.name}»`);
+    }catch(e){}
+  };
+  if(st==='granted'){run();return}
+  /* المتصفح يطلب الإذن من جديد بعد إعادة الفتح: نطلبه مع أول نقرة في الصفحة دون إزعاج */
+  const once=async()=>{document.removeEventListener('pointerdown',once,true);try{if(await DIR.requestPermission({mode:'readwrite'})==='granted')run()}catch(e){}};
+  document.addEventListener('pointerdown',once,true);
+}
 </script>
 
 </body></html>
